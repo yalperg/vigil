@@ -34,16 +34,10 @@ pub struct Editor {
     stdout: std::io::Stdout,
     size: (u16, u16),
     mode: Mode,
+    vtop: u16,
+    vleft: u16,
     cx: u16,
     cy: u16,
-}
-
-impl Drop for Editor {
-    fn drop(&mut self) {
-        _ = self.stdout.flush();
-        _ = self.stdout.execute(terminal::LeaveAlternateScreen);
-        _ = terminal::disable_raw_mode();
-    }
 }
 
 impl Editor {
@@ -55,31 +49,60 @@ impl Editor {
             .execute(terminal::EnterAlternateScreen)?
             .execute(terminal::Clear(terminal::ClearType::All))?;
 
+        let size = terminal::size()?;
+
         Ok(Editor {
             buffer,
             stdout,
-            size: terminal::size().unwrap(),
+            size,
             mode: Mode::Normal,
+            vtop: 0,
+            vleft: 0,
             cx: 0,
             cy: 0,
         })
     }
 
+    fn vwidth(&self) -> u16 {
+        self.size.0
+    }
+
+    fn vheight(&self) -> u16 {
+        self.size.1 - 2
+    }
+
+    fn line_length(&self) -> u16 {
+        if let Some(line) = self.viewport_line(self.cx) {
+            let length = line.len() as u16;
+            return length;
+        }
+        0
+    }
+
+    fn viewport_line(&self, n: u16) -> Option<String> {
+        let buffer_line = self.vtop + n;
+        self.buffer.get(buffer_line as usize)
+    }
+
     fn draw(&mut self) -> anyhow::Result<()> {
-        self.draw_buffer()?;
+        self.draw_viewport()?;
         self.draw_statusline()?;
         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
         self.stdout.flush()?;
         Ok(())
     }
 
-    fn draw_buffer(&mut self) -> anyhow::Result<()> {
-        for (i, line) in self.buffer.lines.iter().enumerate() {
-            if i >= self.size.1 as usize - 2 {
-                break;
-            }
-            self.stdout.queue(cursor::MoveTo(0, i as u16))?;
-            self.stdout.queue(style::Print(line))?;
+    pub fn draw_viewport(&mut self) -> anyhow::Result<()> {
+        let vwidth = self.vwidth() as usize;
+        for i in 0..self.vheight() {
+            let line = match self.viewport_line(i) {
+                None => String::new(), // clear the line
+                Some(s) => s,
+            };
+
+            self.stdout
+                .queue(cursor::MoveTo(0, i))?
+                .queue(style::Print(format!("{line:<width$}", width = vwidth)))?;
         }
         Ok(())
     }
@@ -87,7 +110,7 @@ impl Editor {
     fn draw_statusline(&mut self) -> anyhow::Result<()> {
         let mode = format!(" {:?} ", self.mode).to_uppercase();
         let file = format!(" {}", self.buffer.file.as_deref().unwrap_or("No Name"));
-        let pos = format!(" {}:{} ", self.cx, self.cy);
+        let pos = format!(" {}:{} ", self.cx + 1, self.cy + 1);
 
         let file_width = self.size.0 - mode.len() as u16 - pos.len() as u16 - 2;
 
@@ -164,12 +187,24 @@ impl Editor {
                     }
                     Action::MoveDown => {
                         self.cy += 1;
+                        if self.cy > self.vheight() {
+                            self.cy = self.vheight() - 1;
+                        }
                     }
                     Action::MoveLeft => {
                         self.cx = self.cx.saturating_sub(1);
+                        if self.cx < self.vleft {
+                            self.cx = self.vleft;
+                        }
                     }
                     Action::MoveRight => {
                         self.cx += 1;
+                        if self.cx >= self.line_length() {
+                            self.cx = self.line_length();
+                        }
+                        if self.cx >= self.vwidth() {
+                            self.cx = self.vwidth() - 1;
+                        }
                     }
                     Action::EnterMode(new_mode) => {
                         self.mode = new_mode;
@@ -203,8 +238,9 @@ impl Editor {
     }
 
     fn handle_event(&mut self, ev: event::Event) -> anyhow::Result<Option<Action>> {
-        if matches!(ev, event::Event::Resize(_, _)) {
-            self.size = terminal::size()?;
+        if let event::Event::Resize(width, height) = ev {
+            self.size = (width, height);
+            return Ok(None);
         }
         match self.mode {
             Mode::Normal => self.handle_normal_event(ev),
@@ -242,5 +278,13 @@ impl Editor {
         };
 
         Ok(action)
+    }
+}
+
+impl Drop for Editor {
+    fn drop(&mut self) {
+        _ = self.stdout.flush();
+        _ = self.stdout.execute(terminal::LeaveAlternateScreen);
+        _ = terminal::disable_raw_mode();
     }
 }
