@@ -101,7 +101,12 @@ impl Editor {
     fn set_cursor_style(&mut self) -> anyhow::Result<()> {
         self.stdout.queue(match self.waiting_command {
             Some(_) => cursor::SetCursorStyle::SteadyUnderScore,
-            _ => cursor::SetCursorStyle::DefaultUserShape,
+            _ => {
+                match self.mode {
+                    Mode::Normal => cursor::SetCursorStyle::DefaultUserShape,
+                    Mode::Insert => cursor::SetCursorStyle::SteadyBar,
+                }
+            }
         })?;
 
         Ok(())
