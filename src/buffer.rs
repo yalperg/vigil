@@ -79,4 +79,11 @@ impl Buffer {
             std::fs::write(file, content).unwrap();
         }
     }
+
+    pub fn remove_line(&mut self, y: u16) {
+        let y = y as usize;
+        if y < self.lines.len() {
+            self.lines.remove(y);
+        }
+    }
 }

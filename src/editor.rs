@@ -1,3 +1,4 @@
+use anyhow::Ok;
 use crossterm::{
     cursor,
     event::{self, read},
@@ -23,6 +24,8 @@ enum Action {
 
     InsertCharAtCursorPos(char),
     DeleteCharAtCursorPos,
+    DeleteCurrentLine,
+    SetWaitingCad(char),
     NewLine,
 
     EnterMode(Mode),
@@ -43,6 +46,7 @@ pub struct Editor {
     vleft: u16,
     cx: u16,
     cy: u16,
+    waiting_command: Option<char>,
 }
 
 impl Editor {
@@ -65,6 +69,7 @@ impl Editor {
             vleft: 0,
             cx: 0,
             cy: 0,
+            waiting_command: None,
         })
     }
 
@@ -84,7 +89,7 @@ impl Editor {
         0
     }
 
-    fn buffer_line(&self) -> u16{
+    fn buffer_line(&self) -> u16 {
         self.vtop + self.cy
     }
 
@@ -202,7 +207,6 @@ impl Editor {
         if line_on_buffer as usize >= self.buffer.len() {
             self.cy = self.buffer.len() as u16 - self.vtop;
         }
-
     }
 
     pub fn run(&mut self) -> anyhow::Result<()> {
@@ -240,28 +244,28 @@ impl Editor {
                     }
                     Action::MoveRight => {
                         self.cx += 1;
-                    },
+                    }
                     Action::MoveToLineEnd => {
                         self.cx = self.line_length().saturating_sub(1);
-                    },
+                    }
                     Action::MoveToLineStart => {
                         self.cx = 0;
-                    },
+                    }
                     Action::PageUp => {
                         if self.vtop > 0 {
                             self.vtop = self.vtop.saturating_sub(self.vheight());
                         }
-                    },
+                    }
                     Action::PageDown => {
                         if self.buffer.len() > (self.vtop + self.vheight()) as usize {
                             self.vtop += self.vheight();
                         }
-                    },
+                    }
                     Action::EnterMode(new_mode) => {
                         self.mode = new_mode;
                     }
                     Action::InsertCharAtCursorPos(c) => {
-                        self.buffer.insert( self.cx, self.buffer_line(), c);
+                        self.buffer.insert(self.cx, self.buffer_line(), c);
                         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
                         self.stdout.queue(style::Print(c))?;
                         self.cx += 1;
@@ -278,6 +282,19 @@ impl Editor {
                     Action::NewLine => {
                         self.cy += 1;
                         self.cx = 0;
+                    }
+                    Action::SetWaitingCad(cmd) => {
+                        self.waiting_command = Some(cmd);
+                    }
+                    Action::DeleteCurrentLine => {
+                        let line = self.buffer_line();
+                        self.buffer.remove_line(line);
+                        if self.cy > 0 {
+                            self.cy -= 1;
+                        }
+                        if self.vtop > 0 {
+                            self.vtop -= 1;
+                        }
                     }
                 }
             };
@@ -297,7 +314,12 @@ impl Editor {
         }
     }
 
-    fn handle_normal_event(&self, ev: event::Event) -> anyhow::Result<Option<Action>> {
+    fn handle_normal_event(&mut self, ev: event::Event) -> anyhow::Result<Option<Action>> {
+        if let Some(cmd) = self.waiting_command.clone() {
+            self.waiting_command = None;
+            return self.handle_waiting_command(ev, cmd);
+        }
+
         let action = match ev {
             event::Event::Key(event) => {
                 let code = event.code;
@@ -310,7 +332,9 @@ impl Editor {
                     event::KeyCode::Left | event::KeyCode::Char('h') => Some(Action::MoveLeft),
                     event::KeyCode::Right | event::KeyCode::Char('l') => Some(Action::MoveRight),
                     event::KeyCode::Char('i') => Some(Action::EnterMode(Mode::Insert)),
-                    event::KeyCode::Home | event::KeyCode::Char('0') => Some(Action::MoveToLineStart),
+                    event::KeyCode::Home | event::KeyCode::Char('0') => {
+                        Some(Action::MoveToLineStart)
+                    }
                     event::KeyCode::End | event::KeyCode::Char('$') => Some(Action::MoveToLineEnd),
                     event::KeyCode::Char('b') => {
                         if matches!(modifiers, event::KeyModifiers::CONTROL) {
@@ -332,10 +356,31 @@ impl Editor {
                         } else {
                             None
                         }
-                    },
+                    }
+                    event::KeyCode::Char('d') => Some(Action::SetWaitingCad('d')),
                     _ => None,
                 }
             }
+            _ => None,
+        };
+
+        Ok(action)
+    }
+
+    fn handle_waiting_command(
+        &mut self,
+        ev: event::Event,
+        cmd: char,
+    ) -> anyhow::Result<Option<Action>> {
+        let action = match cmd {
+            'd' => match ev {
+                event::Event::Key(event) => match event.code {
+                    event::KeyCode::Char('d') => Some(Action::DeleteCurrentLine),
+                    event::KeyCode::Esc => Some(Action::EnterMode(Mode::Normal)),
+                    _ => None,
+                },
+                _ => None,
+            },
             _ => None,
         };
 
