@@ -15,6 +15,8 @@ enum Action {
     MoveDown,
     MoveLeft,
     MoveRight,
+    MoveToLineEnd,
+    MoveToLineStart,
     PageUp,
     PageDown,
 
@@ -231,6 +233,12 @@ impl Editor {
                     Action::MoveRight => {
                         self.cx += 1;
                     },
+                    Action::MoveToLineEnd => {
+                        self.cx = self.line_length().saturating_sub(1);
+                    },
+                    Action::MoveToLineStart => {
+                        self.cx = 0;
+                    },
                     Action::PageUp => {
                         if self.vtop > 0 {
                             self.vtop = self.vtop.saturating_sub(self.vheight());
@@ -296,6 +304,8 @@ impl Editor {
                     event::KeyCode::Left | event::KeyCode::Char('h') => Some(Action::MoveLeft),
                     event::KeyCode::Right | event::KeyCode::Char('l') => Some(Action::MoveRight),
                     event::KeyCode::Char('i') => Some(Action::EnterMode(Mode::Insert)),
+                    event::KeyCode::Home | event::KeyCode::Char('0') => Some(Action::MoveToLineStart),
+                    event::KeyCode::End | event::KeyCode::Char('$') => Some(Action::MoveToLineEnd),
                     event::KeyCode::Char('b') => {
                         if matches!(modifiers, event::KeyModifiers::CONTROL) {
                             Some(Action::PageUp)
