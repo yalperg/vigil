@@ -98,7 +98,17 @@ impl Editor {
         self.buffer.get(buffer_line as usize)
     }
 
+    fn set_cursor_style(&mut self) -> anyhow::Result<()> {
+        self.stdout.queue(match self.waiting_command {
+            Some(_) => cursor::SetCursorStyle::SteadyUnderScore,
+            _ => cursor::SetCursorStyle::DefaultUserShape,
+        })?;
+
+        Ok(())
+    }
+
     fn draw(&mut self) -> anyhow::Result<()> {
+        self.set_cursor_style()?;
         self.draw_viewport()?;
         self.draw_statusline()?;
         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
