@@ -10,6 +10,7 @@ use crate::buffer::Buffer;
 
 enum Action {
     Quit,
+    Save,
 
     MoveUp,
     MoveDown,
@@ -20,8 +21,8 @@ enum Action {
     PageUp,
     PageDown,
 
-    AddChar(char),
-    DeleteChar,
+    InsertCharAtCursorPos(char),
+    DeleteCharAtCursorPos,
     NewLine,
 
     EnterMode(Mode),
@@ -81,6 +82,10 @@ impl Editor {
             return length;
         }
         0
+    }
+
+    fn buffer_line(&self) -> u16{
+        self.vtop + self.cy
     }
 
     fn viewport_line(&self, n: u16) -> Option<String> {
@@ -183,19 +188,19 @@ impl Editor {
         let line_length = self.line_length();
         if self.cx >= line_length {
             if line_length > 0 {
-                self.cx = line_length - 1;
+                self.cx = line_length;
             } else {
                 self.cx = 0;
             }
         }
 
         if self.cx >= self.vwidth() {
-            self.cx = self.vwidth() - 1;
+            self.cx = self.vwidth();
         }
 
         let line_on_buffer = self.cy + self.vtop;
-        if line_on_buffer as usize >= self.buffer.len() -1 {
-            self.cy = self.buffer.len() as u16 - self.vtop - 1;
+        if line_on_buffer as usize >= self.buffer.len() {
+            self.cy = self.buffer.len() as u16 - self.vtop;
         }
 
     }
@@ -208,6 +213,9 @@ impl Editor {
             if let Some(action) = self.handle_event(read()?)? {
                 match action {
                     Action::Quit => break,
+                    Action::Save => {
+                        self.buffer.save();
+                    }
                     Action::MoveUp => {
                         if self.cy == 0 {
                             if self.vtop > 0 {
@@ -252,22 +260,20 @@ impl Editor {
                     Action::EnterMode(new_mode) => {
                         self.mode = new_mode;
                     }
-                    Action::AddChar(c) => {
+                    Action::InsertCharAtCursorPos(c) => {
+                        self.buffer.insert( self.cx, self.buffer_line(), c);
                         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
                         self.stdout.queue(style::Print(c))?;
                         self.cx += 1;
                     }
-                    Action::DeleteChar => {
+                    Action::DeleteCharAtCursorPos => {
                         if self.cx > 0 {
                             self.cx -= 1;
                         } else {
                             self.cy = self.cy.saturating_sub(1);
                             self.cx = terminal::size()?.0.saturating_sub(1);
                         }
-
-                        self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
-                        self.stdout.queue(style::Print(' '))?;
-                        self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
+                        self.buffer.remove(self.cx, self.buffer_line());
                     }
                     Action::NewLine => {
                         self.cy += 1;
@@ -320,6 +326,13 @@ impl Editor {
                             None
                         }
                     }
+                    event::KeyCode::Char('s') => {
+                        if matches!(modifiers, event::KeyModifiers::CONTROL) {
+                            Some(Action::Save)
+                        } else {
+                            None
+                        }
+                    },
                     _ => None,
                 }
             }
@@ -333,8 +346,8 @@ impl Editor {
         let action = match ev {
             event::Event::Key(event) => match event.code {
                 event::KeyCode::Esc => Some(Action::EnterMode(Mode::Normal)),
-                event::KeyCode::Char(c) => Some(Action::AddChar(c)),
-                event::KeyCode::Backspace => Some(Action::DeleteChar),
+                event::KeyCode::Char(c) => Some(Action::InsertCharAtCursorPos(c)),
+                event::KeyCode::Backspace => Some(Action::DeleteCharAtCursorPos),
                 event::KeyCode::Enter => Some(Action::NewLine),
                 _ => None,
             },
