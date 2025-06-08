@@ -35,7 +35,7 @@ impl Buffer {
             let mut new_line = String::new();
             let mut char_count = 0;
             let x = x as usize;
-    
+
             for ch in line.chars() {
                 if char_count == x {
                     new_line.push(c);
@@ -43,14 +43,14 @@ impl Buffer {
                 new_line.push(ch);
                 char_count += 1;
             }
-    
+
             if char_count < x {
                 new_line.push_str(&" ".repeat(x - char_count));
                 new_line.push(c);
             } else if char_count == x {
                 new_line.push(c);
             }
-    
+
             *line = new_line;
         } else {
             let mut new_line = String::new();
@@ -65,10 +65,14 @@ impl Buffer {
     pub fn remove(&mut self, x: u16, y: u16) {
         let y = y as usize;
         let x = x as usize;
-    
+
         if let Some(line) = self.lines.get_mut(y) {
-            if !line.is_empty() && x < line.len() {
-                line.remove(x);
+            if !line.is_empty() && x < line.chars().count() {
+                let mut chars: Vec<char> = line.chars().collect();
+                if x < chars.len() {
+                    chars.remove(x);
+                    *line = chars.into_iter().collect();
+                }
             }
         }
     }

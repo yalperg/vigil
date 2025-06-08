@@ -101,12 +101,10 @@ impl Editor {
     fn set_cursor_style(&mut self) -> anyhow::Result<()> {
         self.stdout.queue(match self.waiting_command {
             Some(_) => cursor::SetCursorStyle::SteadyUnderScore,
-            _ => {
-                match self.mode {
-                    Mode::Normal => cursor::SetCursorStyle::DefaultUserShape,
-                    Mode::Insert => cursor::SetCursorStyle::SteadyBar,
-                }
-            }
+            _ => match self.mode {
+                Mode::Normal => cursor::SetCursorStyle::DefaultUserShape,
+                Mode::Insert => cursor::SetCursorStyle::SteadyBar,
+            },
         })?;
 
         Ok(())
@@ -288,11 +286,17 @@ impl Editor {
                     Action::DeleteCharAtCursorPos => {
                         if self.cx > 0 {
                             self.cx -= 1;
-                        } else {
+                            self.buffer.remove(self.cx, self.buffer_line());
+                        } else if self.buffer_line() > 0 {
                             self.cy = self.cy.saturating_sub(1);
-                            self.cx = terminal::size()?.0.saturating_sub(1);
+
+                            self.cx = self.line_length();
+
+                            if self.cx > 0 {
+                                self.cx -= 1;
+                                self.buffer.remove(self.cx, self.buffer_line());
+                            }
                         }
-                        self.buffer.remove(self.cx, self.buffer_line());
                     }
                     Action::NewLine => {
                         self.cy += 1;
