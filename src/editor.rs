@@ -259,7 +259,7 @@ impl Editor {
                         self.cx += 1;
                     }
                     Action::MoveToLineEnd => {
-                        self.cx = self.line_length().saturating_sub(1);
+                        self.cx = self.line_length();
                     }
                     Action::MoveToLineStart => {
                         self.cx = 0;
